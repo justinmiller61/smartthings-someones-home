@@ -61,7 +61,7 @@ def mainPage() {
         }
         
         section {
-        	href name: "moreOptions", title: "More Options", page: "moreOptions"
+        	href name: "moreOptions", title: "More Options", page: "moreOptions", state: hasMoreOptions()
         }
 
 	}
@@ -122,6 +122,10 @@ def timeIntervalInputEnd() {
             input "ending", "time", title: "Ending (required if starting time is specified)", required: starting
         }
     }
+}
+
+def hasMoreOptions() {
+	starting || ending || days || delay || name || falseAlarmThreshold || frequency_minutes_end || people || light_off_delay || light_on_delay ? "complete" : null
 }
 
 def shouldHide() {
@@ -188,10 +192,10 @@ def calculateStartTimeFromInput() {
 	def nextFire = new Date(now.time)
     
 	if(starting) {
-    	def startingToday = timeToday(starting)
-        def endingToday = timeTodayAfter(startingToday, ending)
+    	def startingToday = timeToday(starting, location.timeZone)
+        def endingToday = timeTodayAfter(startingToday, ending, location.timeZone)
     	if(!timeOfDayIsBetween(startingToday, endingToday, now, location.timeZone)) {
-            nextFire = timeTodayAfter(now, starting)
+            nextFire = timeTodayAfter(now, starting, location.timeZone)
         }
     }
         
@@ -366,8 +370,8 @@ private getDaysOk() {
 private getTimeOk() {
     def result = true
     if (starting && ending) {
-        def todayStart = timeToday(starting)
-        def todayEnd = timeTodayAfter(todayStart, ending)
+        def todayStart = timeToday(starting, location.timeZone)
+        def todayEnd = timeTodayAfter(todayStart, ending, location.timeZone)
         def now = new Date()
         result = timeOfDayIsBetween(todayStart, todayEnd, now, location.timeZone)
     }
