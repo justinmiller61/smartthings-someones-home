@@ -173,11 +173,11 @@ def runApp(theMode) {
         log.debug("Will run at ${startTime}")
         runOnce(startTime, scheduleCheck)
 	}
-	else if(people){
+	else {
 		//don't turn off lights if anyone is home
 		unschedule()
 
-		if(anyoneIsHome()){
+		if(people && anyoneIsHome()){
 			log.debug("Stopping Check for Light")
 		}
 		else{
