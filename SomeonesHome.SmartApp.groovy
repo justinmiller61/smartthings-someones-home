@@ -177,12 +177,13 @@ def runApp(theMode) {
 		//don't turn off lights if anyone is home
 		unschedule()
 
-		if(people && anyoneIsHome()){
-			log.debug("Stopping Check for Light")
-		}
-		else{
-			log.debug("Stopping Check for Light and turning off all lights")
-			switches.off()
+		if(people){
+			if(anyoneIsHome()) {
+				log.debug("Stopping Check for Light")
+			} else {
+				log.debug("Stopping Check for Light and turning off all lights")
+				switches.off()
+			}
 		}
 	}
 }
@@ -274,10 +275,14 @@ def turnOn(evt, theSwitches = null, numOn = null) {
 	log.debug("Turning on lights ${light_on_delay ? 'slowly' : 'quicky'}")
 
 	if (numOn < number_of_active_lights) {
+		//if there is no delay in turning on each lights, remove the switch from the list
 		def theSwitch = getRandomN(1, theSwitches, !light_on_delay)
 		log.debug("Turning on ${theSwitch.label}")
 		theSwitch.on()
 		
+		//if light_on_delay was selected, schedule the next light-on method, otherwise, call recursively.
+		//in the latter case, pass theSwitches and numOn to the method because 'allOff' actually queries
+		//device state and there's a chance it won't be accurate if there is no light_on_delay.
 		light_on_delay ? runIn(light_on_delay, turnOnHandler) : turnOn(evt, theSwitches, numOn + 1)
 	} else {
 		runIn(getNextRunTime(), turnOff)
@@ -324,6 +329,7 @@ def getAllOff() {
 	switchesWithState("off")
 }
 
+//@param remove whether or not to remove the randomly selected items from theList
 def getRandomN(num, theList, remove = false) {
 	def r = new Random()
 	def listCopy = remove ? theList : theList.clone()
