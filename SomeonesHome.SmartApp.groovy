@@ -97,7 +97,7 @@ def moreOptions() {
 		}
 
 		section("Day and/or Time") {
-			 href "timeIntervalInputStart", title: "Only during a certain time", description: getTimeLabel(starting, ending), state: getInputState(starting || ending)
+			href "timeIntervalInputStart", title: "Only during a certain time", description: getTimeLabel(starting, ending), state: getInputState(starting || ending)
 			input name: "days", type: "enum", title: "Only on certain days of the week", description: "Days?", multiple: true, required: false, options: daysMap
 		}
 
@@ -125,7 +125,10 @@ def timeIntervalInputEnd() {
 }
 
 def hasMoreOptions() {
-	starting || ending || days || delay || name || falseAlarmThreshold || frequency_minutes_end || people || light_off_delay || light_on_delay ? "complete" : null
+	[starting, ending, days, 
+		delay, name, falseAlarmThreshold, 
+		frequency_minutes_end, people, 
+		light_off_delay, light_on_delay].any { it } ? "complete" : null
 }
 
 def shouldHide() {
@@ -144,51 +147,47 @@ def updated() {
 
 def initialize(){
 	if (newMode != null) {
-		subscribe(location, modeChangeHandler)
-		runApp(location.mode)
+		subscribe(location, scheduleCheckDeffered)
+		scheduleCheckDeffered(null)
 	}
 }
 
-def modeChangeHandler(evt) {
-	runApp(evt.value)
+def scheduleCheckDeffered(evt) {
+	if(getModeOk(evt.value)) {
+		runOnce(calculateStartTimeFromInput(), scheduleCheck)
+	}
 }
 
-def runApp(theMode) {
-	log.debug "Mode change to: ${theMode}"
+// We want to turn off all the lights
+// Then we want to take a random set of lights and turn those on
+// Then run it again when the frequency demands it
+def scheduleCheck() {
+	log.debug("Running scheduleCheck")
 	
-	// Have to handle when they select one mode or multiple
-	if (newMode.any{ it == theMode } || newMode == theMode) {
-		def delay = (falseAlarmThreshold ?: 2) * 60
-		def startTime = calculateStartTimeFromInput()
-		
-		//calculateStartTimeFromInput COULD return a value that is smaller than now(), however
-		//if it did, the resulting subtraction would be negative but so close to
-		//zero that it wouldn't really matter for this comparison.
-		if((startTime.time - now()) <= (delay * 1000)) {
-			log.debug("Adding $delay second delay")
-			delay += startTime[Calendar.SECOND]
-			startTime[Calendar.SECOND] = delay
+	if (allOk) {
+		if(!state.running) {
+			log.debug("Running")
+			state.running = true
+			turnOn()
 		}
-		
-		log.debug("Will run at ${startTime}")
-		runOnce(startTime, scheduleCheck)
+	} else if(modeOk) {
+		runOnce(calculateRunTimeFromInput(), scheduleCheck)
 	}
-	else {
+	//if none is ok turn off frequency check and turn off lights.
+	else if(people) {
+		//necessary?
 		//don't turn off lights if anyone is home
-		unschedule()
-
-		if(people){
-			if(anyoneIsHome()) {
-				log.debug("Stopping Check for Light")
-			} else {
-				log.debug("Stopping Check for Light and turning off all lights")
-				switches.off()
-			}
+		if(anyoneIsHome()){
+			log.debug("Stopping Check for Light")
+		}
+		else{
+			log.debug("Stopping Check for Light and turning off all lights")
+			switches.off()
 		}
 	}
 }
 
-def calculateStartTimeFromInput() {
+def calculateRunTimeFromInput() {
 	def now = new Date()
 	def nextFire = new Date(now.time)
 	
@@ -210,6 +209,14 @@ def calculateStartTimeFromInput() {
 		}
 	}
 	
+	def delay = (falseAlarmThreshold ?: 2) * 60 * 1000
+	
+	if(nextFire.time - now.time <= delay) {
+		log.debug("Adding $delay millisecond delay")
+		delay += nextFire[Calendar.MILLISECOND]
+		nextFire[Calendar.MILLISECOND] = delay
+	}
+	
 	log.debug("Next fire date is: ${nextFire}")
 	return nextFire;
 }
@@ -224,8 +231,7 @@ def nextOccurrence(time, daysOfWeek) {
 		"Saturday": 7,
 		"Sunday": 1 ]
 		
-	def daysInt = daysOfWeek instanceof String ? [ daysMap[daysOfWeek] ] : daysOfWeek.collect { daysMap[it] }.sort()
-	
+	def daysInt = (daysOfWeek.collect { daysMap[it] }.findAll()) ?: [ daysMap[daysOfWeek] ] 
 	def dayOfWeek = time[Calendar.DAY_OF_WEEK]
 	def nextDay = daysInt.find { day -> day >= dayOfWeek } ?: daysInt.first()
 
@@ -237,62 +243,32 @@ def nextOccurrence(time, daysOfWeek) {
 	time
 }
 
-// We want to turn off all the lights
-// Then we want to take a random set of lights and turn those on
-// Then run it again when the frequency demands it
-def scheduleCheck(evt) {
-	log.debug("Running scheduleCheck")
-	
-	if(allOk){
-		log.debug("Running")
-		turnOn(evt)
-	}
-	//Check to see if mode is ok but not time/day.  If mode is still ok, check again after frequency period.
-	else if (modeOk) {
-		log.debug("mode OK.  Running again")
-		switches.off()
-		runOnce(calculateStartTimeFromInput(), scheduleCheck)
-	}
-	//if none is ok turn off frequency check and turn off lights.
-	else if(people){
-		//necessary?
-		//don't turn off lights if anyone is home
-		if(anyoneIsHome()){
-			log.debug("Stopping Check for Light")
-		}
-		else{
-			log.debug("Stopping Check for Light and turning off all lights")
-			switches.off()
-		}
-	}
-}
-
-def turnOn(evt, theSwitches = null, numOn = null) {
-	theSwitches = theSwitches ?: allOff.clone()
-	numOn = (numOn ?: allOn.size())
-
+def turnOn(theSwitches = allOff.clone(), numOn = allOn.size()) {
 	log.debug("$numOn lights are on. I have ${theSwitches.size()} available switches")
 	log.debug("Turning on lights ${light_on_delay ? 'slowly' : 'quicky'}")
 
 	if (numOn < number_of_active_lights) {
 		//if there is no delay in turning on each lights, remove the switch from the list
 		def theSwitch = getRandomN(1, theSwitches, !light_on_delay)
-		log.debug("Turning on ${theSwitch.label}")
 		theSwitch.on()
 		
-		//if light_on_delay was selected, schedule the next light-on method, otherwise, call recursively.
-		//in the latter case, pass theSwitches and numOn to the method because 'allOff' actually queries
-		//device state and there's a chance it won't be accurate if there is no light_on_delay.
-		light_on_delay ? runIn(light_on_delay, turnOnHandler) : turnOn(evt, theSwitches, numOn + 1)
+		log.debug("Turning on ${theSwitch.label}")
+		
+		if(light_on_delay) {
+			runIn(light_on_delay, turnOn) 
+		} else {
+			turnOn(theSwitches, numOn + 1)
+		}
 	} else {
-		runIn(getNextRunTime(), turnOff)
+		runIn(getNextCycleTime(), turnOff)
 	}
 }
 
-def turnOff(evt) {
+def turnOff() {
 	if(!light_off_delay) {
 		log.debug("Turning off all lights quickly")
 		switches.off()
+		state.running = false
 		runIn(cycle_delay, scheduleCheck)
 	} else {
 		log.debug("Turning off lights slowly")
@@ -302,16 +278,13 @@ def turnOff(evt) {
 			allOn.first().off()
 			runIn(light_off_delay, turnOff)
 		} else {
+			state.running = false
 			runIn(cycle_delay, scheduleCheck)
 		}
 	}
 }
 
-def turnOnHandler(evt) {
-	turnOn(evt)
-}
-
-def getNextRunTime() {
+def getNextCycleTime() {
 	def freq = getRandomBetween(frequency_minutes, frequency_minutes_end) * 60
 	log.debug("Next cycle time: ${freq}")
 	return freq
@@ -333,10 +306,9 @@ def getAllOff() {
 def getRandomN(num, theList, remove = false) {
 	def r = new Random()
 	def listCopy = remove ? theList : theList.clone()
-	def subset = []
-	
+
 	num = Math.min(listCopy.size(), num)
-	num.times { subset << listCopy.remove(r.nextInt(listCopy.size())) }
+	def subset = (1..num).collect { listCopy.remove(r.nextInt(listCopy.size())) }
 	
 	subset.size() == 1 ? subset.first() : subset
 }
@@ -350,8 +322,8 @@ private getAllOk() {
 	modeOk && daysOk && timeOk
 }
 
-private getModeOk() {
-	def result = !newMode || newMode.contains(location.mode)
+private getModeOk(theMode = location.mode) {
+	def result = !newMode || newMode.any { it == theMode } || newMode == theMode
 	log.trace "modeOk = $result"
 	result
 }
