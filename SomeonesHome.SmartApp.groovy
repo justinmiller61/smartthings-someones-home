@@ -52,10 +52,6 @@ def mainPage() {
 			input name: "number_of_active_lights", type: "number", title: "Active?"
 		}
 
-		section("How many seconds to wait after turning all lights off, before starting the next cycle.") {
-			input name: "cycle_delay", type: "number", title: "Seconds?"
-		}
-
 		section("Minimum number of minutes for each cycle") {
 			input name: "frequency_minutes", type: "number", title: "Minutes?"
 		}
@@ -79,16 +75,21 @@ def moreOptions() {
 		"Sunday"]
 
 	dynamicPage(name: "moreOptions", title: "More", nextPage: "mainPage") {
-		section("Maximum number of minutes for each cycle (if not specified, will use minimum)") {
-			paragraph "If you specify a both a minimum and a maximum number of minutes for a cycle, then a random number of minutes between the two will be chosen."
+		section("Maximum number of minutes for each cycle?") {
+			paragraph "If you specify a both a minimum and a maximum number of minutes for a cycle, then a random number of minutes between the two will be chosen. Otherwise, it will be a fixed frequency."
 			input name: "frequency_minutes_end", type: "number", title: "Minutes?", required: false
 		}
 
-		section("How many seconds to pause between turning off each light") {
+		section("How many seconds to wait before starting the next cycle.") {
+			paragraph "This is the delay between turning off the last light and beginning the next cycle."
+			input name: "cycle_delay", type: "number", title: "Seconds?"
+		}
+		
+		section("How many seconds to pause between turning off each light?") {
 			input name: "light_off_delay", type: "number", title: "Seconds?", required: false
 		}
 
-		section("How many seconds to pause between turning on each light") {
+		section("How many seconds to pause between turning on each light?") {
 			input name: "light_on_delay", type: "number", title: "Seconds?", required: false
 		}
 
@@ -153,9 +154,7 @@ def initialize(){
 }
 
 def scheduleCheckDeffered(evt) {
-	if(getModeOk(evt.value)) {
-		runOnce(calculateStartTimeFromInput(), scheduleCheck)
-	}
+	runOnce(calculateRunTimeFromInput(), scheduleCheck)
 }
 
 // We want to turn off all the lights
@@ -168,7 +167,7 @@ def scheduleCheck() {
 		if(!state.running) {
 			log.debug("Running")
 			state.running = true
-			turnOn()
+			turnOn(switches.clone(), 0)
 		}
 	} else if(modeOk) {
 		runOnce(calculateRunTimeFromInput(), scheduleCheck)
@@ -184,6 +183,8 @@ def scheduleCheck() {
 			log.debug("Stopping Check for Light and turning off all lights")
 			switches.off()
 		}
+	} else {
+		//turn off all switches and unschedule when none of the criteria are met?
 	}
 }
 
@@ -231,7 +232,7 @@ def nextOccurrence(time, daysOfWeek) {
 		"Saturday": 7,
 		"Sunday": 1 ]
 		
-	def daysInt = (daysOfWeek.collect { daysMap[it] }.findAll()) ?: [ daysMap[daysOfWeek] ] 
+	def daysInt = [ daysOfWeek ].flatten().collect { daysMap[it] }
 	def dayOfWeek = time[Calendar.DAY_OF_WEEK]
 	def nextDay = daysInt.find { day -> day >= dayOfWeek } ?: daysInt.first()
 
@@ -254,33 +255,38 @@ def turnOn(theSwitches = allOff.clone(), numOn = allOn.size()) {
 		
 		log.debug("Turning on ${theSwitch.label}")
 		
-		if(light_on_delay) {
-			runIn(light_on_delay, turnOn) 
-		} else {
-			turnOn(theSwitches, numOn + 1)
-		}
+		runNowOrLater(turnOn, light_on_delay, theSwitches, numOn + 1)
 	} else {
 		runIn(getNextCycleTime(), turnOff)
 	}
 }
 
 def turnOff() {
-	if(!light_off_delay) {
-		log.debug("Turning off all lights quickly")
-		switches.off()
-		state.running = false
-		runIn(cycle_delay, scheduleCheck)
-	} else {
-		log.debug("Turning off lights slowly")
-		
-		if (allOn.size() > 0) {
-			log.debug("Turning off ${allOn.first().label}")
+	if (allOn.size() > 0) {
+		if(!light_off_delay) {
+			log.debug("Turning off all lights quickly")
+			
+			switches.off()
+			state.running = false
+			
+			runNowOrLater(scheduleCheck, cycle_delay)
+		} else {
+			log.debug("Turning off lights slowly")
+			
 			allOn.first().off()
 			runIn(light_off_delay, turnOff)
-		} else {
-			state.running = false
-			runIn(cycle_delay, scheduleCheck)
 		}
+	} else {
+		state.running = false
+		runNowOrLater(scheduleCheck, cycle_delay)
+	}
+}
+
+def runNowOrLater(method, delay, Object... args) {
+	if(delay) {
+		runIn(delay, method)
+	} else {
+		"$method"(args)
 	}
 }
 
@@ -323,7 +329,7 @@ private getAllOk() {
 }
 
 private getModeOk(theMode = location.mode) {
-	def result = !newMode || newMode.any { it == theMode } || newMode == theMode
+	def result = !newMode || [ newMode ].flatten().any { it == theMode }
 	log.trace "modeOk = $result"
 	result
 }
