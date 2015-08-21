@@ -82,7 +82,7 @@ def moreOptions() {
 
 		section("How many seconds to wait before starting the next cycle.") {
 			paragraph "This is the delay between turning off the last light and beginning the next cycle."
-			input name: "cycle_delay", type: "number", title: "Seconds?"
+			input name: "cycle_delay", type: "number", title: "Seconds?", required: false
 		}
 		
 		section("How many seconds to pause between turning off each light?") {
@@ -97,11 +97,22 @@ def moreOptions() {
 			input name: "people", type: "capability.presenceSensor", title: "If these people are home do not change light status", required: false, multiple: true
 		}
 
+		/*
 		section("Day and/or Time") {
 			href "timeIntervalInputStart", title: "Only during a certain time", description: getTimeLabel(starting, ending), state: getInputState(starting || ending)
 			input name: "days", type: "enum", title: "Only on certain days of the week", description: "Days?", multiple: true, required: false, options: daysMap
 		}
+		*/
 
+		section {
+			paragraph "Only during a certain time. Neither or both must be specified"
+			input "starting", "time", title: "Starting", required: false
+		}
+		
+		section {
+			input "ending", "time", title: "Ending", required: false
+		}
+		
 		section() {
 			label title:"Assign a name", required:false
 			input name: "falseAlarmThreshold", type: "decimal", title: "Delay to start simulator... (defaults to 2 min)", description: "Minutes?", required: false
@@ -109,31 +120,8 @@ def moreOptions() {
 	}
 }
 
-def timeIntervalInputStart() {
-	dynamicPage(name: "timeIntervalInputStart", title: "Only during a certain time", nextPage: "timeIntervalInputEnd", install: false) {
-		section {
-			input "starting", "time", title: "Starting", required: false
-		}
-	}
-}
-
-def timeIntervalInputEnd() {
-	dynamicPage(name: "timeIntervalInputEnd", title: "Only during a certain time", nextPage: "moreOptions") {
-		section {
-			input "ending", "time", title: "Ending (required if starting time is specified)", required: starting
-		}
-	}
-}
-
 def hasMoreOptions() {
-	[starting, ending, days, 
-		delay, name, falseAlarmThreshold, 
-		frequency_minutes_end, people, 
-		light_off_delay, light_on_delay].any { it } ? "complete" : null
-}
-
-def shouldHide() {
-	return !(days || starting || ending || delay || name)
+	[starting, ending, days, delay, name, falseAlarmThreshold, frequency_minutes_end, people, light_off_delay, light_on_delay].any { it } ? "complete" : null
 }
 
 def installed() {
@@ -149,18 +137,18 @@ def updated() {
 def initialize(){
 	if (newMode != null) {
 		subscribe(location, scheduleCheckDeffered)
-		scheduleCheckDeffered(null)
+		scheduleCheckDeffered()
 	}
 }
 
-def scheduleCheckDeffered(evt) {
+def scheduleCheckDeffered(evt = null) {
 	runOnce(calculateRunTimeFromInput(), scheduleCheck)
 }
 
 // We want to turn off all the lights
 // Then we want to take a random set of lights and turn those on
 // Then run it again when the frequency demands it
-def scheduleCheck() {
+def scheduleCheck(evt = null) {
 	log.debug("Running scheduleCheck")
 	
 	if (allOk) {
@@ -173,18 +161,13 @@ def scheduleCheck() {
 		runOnce(calculateRunTimeFromInput(), scheduleCheck)
 	}
 	//if none is ok turn off frequency check and turn off lights.
-	else if(people) {
-		//necessary?
-		//don't turn off lights if anyone is home
-		if(anyoneIsHome()){
+	else {
+		if(people && anyoneIsHome()) {
 			log.debug("Stopping Check for Light")
-		}
-		else{
-			log.debug("Stopping Check for Light and turning off all lights")
+		} else {
 			switches.off()
 		}
-	} else {
-		//turn off all switches and unschedule when none of the criteria are met?
+		unschedule()
 	}
 }
 
@@ -250,7 +233,8 @@ def turnOn(theSwitches = allOff.clone(), numOn = allOn.size()) {
 
 	if (numOn < number_of_active_lights) {
 		//if there is no delay in turning on each lights, remove the switch from the list
-		def theSwitch = getRandomN(1, theSwitches, !light_on_delay)
+		def shouldRemove = !light_on_delay
+		def theSwitch = getRandomN(1, theSwitches, shouldRemove)
 		theSwitch.on()
 		
 		log.debug("Turning on ${theSwitch.label}")
@@ -281,6 +265,27 @@ def turnOff() {
 		runNowOrLater(scheduleCheck, cycle_delay)
 	}
 }
+
+/*
+def turnOff() {
+	if (allOn.size() > 0) {
+		if(!light_off_delay) {
+			log.debug("Turning off all lights quickly")
+			switches.off()
+		} else {
+			log.debug("Turning off lights slowly")
+			
+			allOn.first().off()
+			runIn(light_off_delay, turnOff)
+		}
+	} 
+	
+	if (allOn.size() == 0 || !light_off_delay) {
+		state.running = false
+		runNowOrLater(scheduleCheck, cycle_delay)
+	}
+}
+*/
 
 def runNowOrLater(method, delay, Object... args) {
 	if(delay) {
