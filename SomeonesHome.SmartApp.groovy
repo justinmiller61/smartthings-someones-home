@@ -32,8 +32,6 @@ definition(
 
 preferences {
 	page(name: "mainPage")
-	page(name: "timeIntervalInputStart")
-	page(name: "timeIntervalInputEnd")
 	page(name: "moreOptions")
 }
 
@@ -79,11 +77,6 @@ def moreOptions() {
 			paragraph "If you specify a both a minimum and a maximum number of minutes for a cycle, then a random number of minutes between the two will be chosen. Otherwise, it will be a fixed frequency."
 			input name: "frequency_minutes_end", type: "number", title: "Minutes?", required: false
 		}
-
-		section("How many seconds to wait before starting the next cycle.") {
-			paragraph "This is the delay between turning off the last light and beginning the next cycle."
-			input name: "cycle_delay", type: "number", title: "Seconds?", required: false
-		}
 		
 		section("How many seconds to pause between turning off each light?") {
 			input name: "light_off_delay", type: "number", title: "Seconds?", required: false
@@ -92,17 +85,14 @@ def moreOptions() {
 		section("How many seconds to pause between turning on each light?") {
 			input name: "light_on_delay", type: "number", title: "Seconds?", required: false
 		}
+		
+		section("How many seconds to wait between the end of one cycle and the beginning of the next.") {
+			input name: "cycle_delay", type: "number", title: "Seconds?", required: false
+		}
 
 		section("People") {
 			input name: "people", type: "capability.presenceSensor", title: "If these people are home do not change light status", required: false, multiple: true
 		}
-
-		/*
-		section("Day and/or Time") {
-			href "timeIntervalInputStart", title: "Only during a certain time", description: getTimeLabel(starting, ending), state: getInputState(starting || ending)
-			input name: "days", type: "enum", title: "Only on certain days of the week", description: "Days?", multiple: true, required: false, options: daysMap
-		}
-		*/
 
 		section {
 			paragraph "Only during a certain time. Neither or both must be specified"
@@ -135,6 +125,8 @@ def updated() {
 }
 
 def initialize(){
+	state.running = false
+	
 	if (newMode != null) {
 		subscribe(location, scheduleCheckDeffered)
 		scheduleCheckDeffered()
@@ -142,6 +134,9 @@ def initialize(){
 }
 
 def scheduleCheckDeffered(evt = null) {
+	if(evt) {
+		log.debug("Mode change $evt")
+	}
 	runOnce(calculateRunTimeFromInput(), scheduleCheck)
 }
 
@@ -156,18 +151,20 @@ def scheduleCheck(evt = null) {
 			log.debug("Running")
 			state.running = true
 			turnOn(switches.clone(), 0)
+		} else {
+			log.debug("Already running")
 		}
 	} else if(modeOk) {
 		runOnce(calculateRunTimeFromInput(), scheduleCheck)
 	}
 	//if none is ok turn off frequency check and turn off lights.
 	else {
-		if(people && anyoneIsHome()) {
-			log.debug("Stopping Check for Light")
-		} else {
+		log.debug("Stopping Check for Light")
+		unschedule()
+		
+		if(!(people && anyoneIsHome())) {
 			switches.off()
 		}
-		unschedule()
 	}
 }
 
@@ -364,6 +361,9 @@ private getTimeOk() {
 		def now = new Date()
 		result = timeOfDayIsBetween(todayStart, todayEnd, now, location.timeZone)
 	}
+	
+	log.debug("timeOk = $result")
+	
 	return result
 }
 
