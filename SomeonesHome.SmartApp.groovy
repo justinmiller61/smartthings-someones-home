@@ -168,6 +168,10 @@ def scheduleCheck(evt = null) {
 	}
 }
 
+def willRunToday(time) {
+	return new Date()[Calendar.DAY_OF_WEEK] == time[Calendar.DAY_OF_WEEK]
+}
+
 def calculateRunTimeFromInput() {
 	def now = new Date()
 	def nextFire = new Date(now.time)
@@ -181,13 +185,7 @@ def calculateRunTimeFromInput() {
 	}
 		
 	if(days) {
-		def oldNextFire = nextFire
 		nextFire = nextOccurrence(nextFire, days)
-		
-		if((oldNextFire - nextFire) && !starting) {
-			//if there was no starting time, then clearTime, which sets to midnight
-			nextFire = nextFire.clearTime()
-		}
 	}
 	
 	def delay = (falseAlarmThreshold ?: 2) * 60 * 1000
@@ -221,6 +219,12 @@ def nextOccurrence(time, daysOfWeek) {
 	
 	//add to DAY_OF_MONTH. Will cause 'time' to roll if necessary
 	time[Calendar.DAY_OF_MONTH] = time[Calendar.DAY_OF_MONTH] + daysBetween
+	
+	if(!willRunToday(time) && !starting) {
+		//if there was no starting time, then clearTime, which sets to midnight
+		time = time.clearTime()
+	}
+	
 	time
 }
 
