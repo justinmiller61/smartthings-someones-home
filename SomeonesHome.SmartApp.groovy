@@ -161,6 +161,7 @@ def scheduleCheck(evt = null) {
 	else {
 		log.debug("Stopping Check for Light")
 		unschedule()
+		state.running = false
 		
 		if(!(people && anyoneIsHome())) {
 			switches.off()
